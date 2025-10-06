@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from model import Kronos, KronosTokenizer, KronosPredictor
+    from data import db
     MODEL_AVAILABLE = True
 except ImportError:
     MODEL_AVAILABLE = False
@@ -327,10 +328,79 @@ def create_prediction_chart(df, pred_df, lookback, pred_len, actual_df=None, his
     
     return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
+# Detect data time frequency
+def detect_timeframe(df):
+    if len(df) < 2:
+        return "Unknown"
+    
+    time_diffs = []
+    for i in range(1, min(10, len(df))):  # Check first 10 time differences
+        diff = df['timestamps'].iloc[i] - df['timestamps'].iloc[i-1]
+        time_diffs.append(diff)
+    
+    if not time_diffs:
+        return "Unknown"
+    
+    # Calculate average time difference
+    avg_diff = sum(time_diffs, pd.Timedelta(0)) / len(time_diffs)
+    
+    # Convert to readable format
+    if avg_diff < pd.Timedelta(minutes=1):
+        return f"{avg_diff.total_seconds():.0f} seconds"
+    elif avg_diff < pd.Timedelta(hours=1):
+        return f"{avg_diff.total_seconds() / 60:.0f} minutes"
+    elif avg_diff < pd.Timedelta(days=1):
+        return f"{avg_diff.total_seconds() / 3600:.0f} hours"
+    else:
+        return f"{avg_diff.days} days"
+        
+
 @app.route('/')
 def index():
     """Home page"""
     return render_template('index.html')
+
+@app.route('/api/download-data', methods=['POST'])
+def download_data():
+    """Download data file"""
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        period = data.get('period')
+        start_date = data.get('from')
+        end_date = data.get('end')
+        
+        print(code,period,start_date,end_date)
+        
+        if not code or  not period or not start_date or not end_date:
+            return jsonify({'error': 'parms cannot be empty'}), 400
+
+        df,error = db.get_stock_data_ak(code,period,start_date,end_date)
+        if error:
+            return jsonify({'error': error}), 400
+
+        # Return data information
+        data_info = {
+            'rows': len(df),
+            'columns': list(df.columns),
+            'start_date': df['timestamps'].min().isoformat() if 'timestamps' in df.columns else 'N/A',
+            'end_date': df['timestamps'].max().isoformat() if 'timestamps' in df.columns else 'N/A',
+            'price_range': {
+                'min': float(df[['open', 'high', 'low', 'close']].min().min()),
+                'max': float(df[['open', 'high', 'low', 'close']].max().max())
+            },
+            'prediction_columns': ['open', 'high', 'low', 'close'] + (['volume'] if 'volume' in df.columns else []),
+            'timeframe': detect_timeframe(df)
+        }
+        
+        return jsonify({
+            'success': True,
+            'data_info': data_info,
+            'message': f'Successfully loaded data, total {len(df)} rows'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to load data: {str(e)}'}), 500
 
 @app.route('/api/data-files')
 def get_data_files():
@@ -351,33 +421,7 @@ def load_data():
         df, error = load_data_file(file_path)
         if error:
             return jsonify({'error': error}), 400
-        
-        # Detect data time frequency
-        def detect_timeframe(df):
-            if len(df) < 2:
-                return "Unknown"
-            
-            time_diffs = []
-            for i in range(1, min(10, len(df))):  # Check first 10 time differences
-                diff = df['timestamps'].iloc[i] - df['timestamps'].iloc[i-1]
-                time_diffs.append(diff)
-            
-            if not time_diffs:
-                return "Unknown"
-            
-            # Calculate average time difference
-            avg_diff = sum(time_diffs, pd.Timedelta(0)) / len(time_diffs)
-            
-            # Convert to readable format
-            if avg_diff < pd.Timedelta(minutes=1):
-                return f"{avg_diff.total_seconds():.0f} seconds"
-            elif avg_diff < pd.Timedelta(hours=1):
-                return f"{avg_diff.total_seconds() / 60:.0f} minutes"
-            elif avg_diff < pd.Timedelta(days=1):
-                return f"{avg_diff.total_seconds() / 3600:.0f} hours"
-            else:
-                return f"{avg_diff.days} days"
-        
+
         # Return data information
         data_info = {
             'rows': len(df),

@@ -481,6 +481,27 @@
 
                 <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
 
+                <!-- History Data Download -->
+                <div class="form-group">
+                    <label>股票代码:</label>
+                    <input id="hist-data-download-code" type="text" placeholder="股票代码" value="600519"/>
+                    <select id="hist-data-download-period" type="text" placeholder="周期">
+                        <option value="daily">daily</option>
+                        <option value="weekly">weekly</option>
+                        <option value="monthly">monthly</option>
+                    </select>
+                    <label>起止日期:</label>
+                    <input id="hist-data-download-from" type="datetime" placeholder="开始日期" value="20150101"/>
+                    <input id="hist-data-download-end" type="datetime" placeholder="结束日期" value="20251001"/>
+                    <small class="form-text">Select K-line data file from data directory</small>
+                </div>
+
+                <button id="download-data-btn" class="btn btn-secondary">
+                    📁 下载数据
+                </button>
+
+                <hr style="margin: 20px 0; border: 1px solid #e2e8f0;">
+
                 <!-- Data File Selection -->
                 <div class="form-group">
                     <label for="data-file-select">Select Data File:</label>
@@ -653,7 +674,7 @@
             await loadAvailableModels();
             
             // Load data file list
-            await loadDataFiles();
+            // await loadDataFiles();
             
             // Set up event listeners
             setupEventListeners();
@@ -752,6 +773,7 @@
 
         // Load data file list
         async function loadDataFiles() {
+            console.log('loadDataFiles')
             try {
                 const response = await axios.get('/api/data-files');
                 const dataFiles = response.data;
@@ -770,6 +792,44 @@
             } catch (error) {
                 console.error('❌ Failed to load data file list:', error);
                 showStatus('error', 'Failed to load data file list');
+            }
+        }
+
+        // Download data file
+        async function downloadData() {
+            const code = document.getElementById('hist-data-download-code').value;
+            const period = document.getElementById('hist-data-download-period').value;
+            const from = document.getElementById('hist-data-download-from').value;
+            const end = document.getElementById('hist-data-download-end').value;
+            
+            if (!code || !period || !from || !end) {
+                showStatus('error', '请输入合法代码和起止日期');
+                return;
+            }
+            
+            try {
+                showLoading(true);
+                document.getElementById('download-data-btn').disabled = true;
+                
+                const response = await axios.post('/api/download-data', {
+                    code: code,
+                    period: period,
+                    from: from,
+                    end: end,
+                });
+                
+                if (response.data.success) {
+                    showStatus('success', response.data.message);
+                    console.log('✅ Data downloaded successfully:', response.data.data_info);
+                } else {
+                    showStatus('error', response.data.error);
+                }
+            } catch (error) {
+                console.error('❌ Download Data failed:', error);
+                showStatus('error', `Download Data failed: ${error.response?.data?.error || error.message}`);
+            } finally {
+                showLoading(false);
+                document.getElementById('download-data-btn').disabled = false;
             }
         }
 
@@ -1190,7 +1250,16 @@
         function setupEventListeners() {
             // Load model button
             document.getElementById('load-model-btn').addEventListener('click', loadModel);
+
+            // Load data button
+            document.getElementById('download-data-btn').addEventListener('click', downloadData);
+
+            // Load data files
+            document.getElementById('data-file-select').addEventListener("focusin", loadDataFiles);
             
+            // Load data button
+            document.getElementById('download-data-btn').addEventListener('click', downloadData);
+
             // Load data button
             document.getElementById('load-data-btn').addEventListener('click', loadData);
             
